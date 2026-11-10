@@ -1,0 +1,56 @@
+name: Konto-Radar
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"   # backup: starter den igen, hvis den er stoppet
+
+concurrency:
+  group: radar
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Hent hvad vi allerede har meldt
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: radar-${{ github.run_id }}
+          restore-keys: radar-
+
+      - name: Kør Konto-Radar (ca. 5,7 timer)
+        env:
+          DISCORD_WEBHOOK_RADAR: ${{ secrets.DISCORD_WEBHOOK_RADAR }}
+          DISCORD_WEBHOOK_STATUS: ${{ secrets.DISCORD_WEBHOOK_STATUS }}
+          KNOWN_WALLETS: ${{ secrets.KNOWN_WALLETS }}
+          SUSPECT_TEAMS: ${{ secrets.SUSPECT_TEAMS }}
+          RUN_SECONDS: "20500"
+        run: python -u radar.py
+
+      - name: Gem hvad vi har meldt
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: radar-${{ github.run_id }}
+
+      - name: Start næste omgang
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run radar.yml --ref ${{ github.ref_name }}
